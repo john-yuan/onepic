@@ -3,6 +3,7 @@
 
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
 import Image from 'next/image'
+import { PageSizes, PDFDocument } from 'pdf-lib'
 import { ChangeEvent, useEffect, useRef, useState } from 'react'
 
 type SelectedImage = {
@@ -90,12 +91,28 @@ function buildDrawPlans(images: SelectedImage[]): {
   }
 }
 
+function getExportFileBaseName() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
+  const seconds = String(now.getSeconds()).padStart(2, '0')
+
+  return `onepic_${year}${month}${day}${hours}${minutes}${seconds}`
+}
+
+const [A4_WIDTH] = PageSizes.A4
+const PDF_MAX_IMAGE_WIDTH = Math.round(A4_WIDTH * 3)
+
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imagesRef = useRef<SelectedImage[]>([])
   const [images, setImages] = useState<SelectedImage[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const canvasData = buildDrawPlans(images)
   const summary = canvasData?.summary ?? null
@@ -189,7 +206,7 @@ export default function Home() {
     }
 
     const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, 'image/png')
+      canvas.toBlob(resolve, 'image/jpeg', 1)
     })
 
     if (!blob) {
@@ -199,11 +216,72 @@ export default function Home() {
 
     const downloadUrl = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
+    const fileBaseName = getExportFileBaseName()
 
     anchor.href = downloadUrl
-    anchor.download = 'merged-image.png'
+    anchor.download = `${fileBaseName}.jpeg`
     anchor.click()
     URL.revokeObjectURL(downloadUrl)
+  }
+
+  const handleDownloadPdf = async () => {
+    const canvas = canvasRef.current
+
+    if (!canvas || !summary) {
+      return
+    }
+
+    setIsExportingPdf(true)
+    setErrorMessage('')
+
+    try {
+      const exportWidth = Math.min(summary.width, PDF_MAX_IMAGE_WIDTH)
+      const exportHeight = Math.round((summary.height * exportWidth) / summary.width)
+      const exportCanvas = document.createElement('canvas')
+
+      exportCanvas.width = exportWidth
+      exportCanvas.height = exportHeight
+
+      const exportContext = exportCanvas.getContext('2d')
+
+      if (!exportContext) {
+        throw new Error('无法获取 PDF 导出上下文')
+      }
+
+      exportContext.imageSmoothingEnabled = true
+      exportContext.imageSmoothingQuality = 'high'
+      exportContext.drawImage(canvas, 0, 0, exportWidth, exportHeight)
+
+      const jpgDataUrl = exportCanvas.toDataURL('image/jpeg', 1)
+      const pdfDoc = await PDFDocument.create()
+      const jpgImage = await pdfDoc.embedJpg(jpgDataUrl)
+      const pdfHeight = Math.round((summary.height * A4_WIDTH) / summary.width)
+      const page = pdfDoc.addPage([A4_WIDTH, pdfHeight])
+
+      page.drawImage(jpgImage, {
+        x: 0,
+        y: 0,
+        width: A4_WIDTH,
+        height: pdfHeight,
+      })
+
+      const pdfBytes = await pdfDoc.save()
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+      const downloadUrl = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      const fileBaseName = getExportFileBaseName()
+
+      anchor.href = downloadUrl
+      anchor.download = `${fileBaseName}.pdf`
+      anchor.click()
+      URL.revokeObjectURL(downloadUrl)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : '导出 PDF 失败，请重试。',
+      )
+    } finally {
+      setIsExportingPdf(false)
+    }
   }
 
   const removeImage = (id: string) => {
@@ -297,7 +375,7 @@ export default function Home() {
               ? '处理中...'
               : images.length > 0
                 ? '继续添加图片'
-                : '选择多张图片'}
+                : '选择图片'}
           </button>
 
           <button
@@ -308,12 +386,35 @@ export default function Home() {
               border: '1px solid #d1d5db',
               borderRadius: 8,
               padding: '10px 16px',
-              backgroundColor: '#ffffff',
-              color: '#111827',
+              backgroundColor: summary ? '#ffffff' : '#f3f4f6',
+              color: summary ? '#111827' : '#9ca3af',
+              borderColor: summary ? '#d1d5db' : '#e5e7eb',
+              opacity: summary ? 1 : 0.7,
               cursor: summary ? 'pointer' : 'not-allowed',
             }}
           >
             保存图片
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={!summary || isExportingPdf}
+            style={{
+              border: '1px solid #d1d5db',
+              borderRadius: 8,
+              padding: '10px 16px',
+              backgroundColor:
+                summary && !isExportingPdf ? '#ffffff' : '#f3f4f6',
+              color: summary && !isExportingPdf ? '#111827' : '#9ca3af',
+              borderColor:
+                summary && !isExportingPdf ? '#d1d5db' : '#e5e7eb',
+              opacity: summary && !isExportingPdf ? 1 : 0.7,
+              cursor:
+                summary && !isExportingPdf ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {isExportingPdf ? '导出 PDF...' : '保存为 PDF'}
           </button>
 
           {summary ? (
