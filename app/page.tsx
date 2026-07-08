@@ -101,7 +101,16 @@ function getExportFileBaseName() {
   const minutes = String(now.getMinutes()).padStart(2, '0')
   const seconds = String(now.getSeconds()).padStart(2, '0')
 
-  return `onepic_${year}${month}${day}${hours}${minutes}${seconds}`
+  return `OnePic_${year}${month}${day}${hours}${minutes}${seconds}`
+}
+
+function createPdfBlob(pdfBytes: Uint8Array) {
+  const buffer = new ArrayBuffer(pdfBytes.byteLength)
+  const bytes = new Uint8Array(buffer)
+
+  bytes.set(pdfBytes)
+
+  return new Blob([buffer], { type: 'application/pdf' })
 }
 
 const [A4_WIDTH] = PageSizes.A4
@@ -309,7 +318,7 @@ export default function Home() {
       })
 
       const pdfBytes = await pdfDoc.save()
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' })
+      const blob = createPdfBlob(pdfBytes)
       const downloadUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       const fileBaseName = getExportFileBaseName()
