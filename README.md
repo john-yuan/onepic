@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# OnePic
 
-## Getting Started
+OnePic is a lightweight mobile-friendly tool for combining multiple images into a single long image.
 
-First, run the development server:
+Users can pick several images at once, keep adding more, reorder them, remove any image they no longer want, and export the final result in a format that fits their needs.
+
+## What It Does
+
+- Select multiple images in one go
+- Keep adding more images after the initial selection
+- Merge images vertically on a single canvas
+- Automatically use the smallest source width as the export baseline
+- Scale down wider images proportionally without enlarging narrower ones
+- Reorder images with simple up/down controls
+- Confirm image deletion before removing an item
+- Export the merged result as:
+  - PNG
+  - JPEG
+  - PDF with either embedded PNG or embedded JPEG
+
+## Export Behavior
+
+- The on-screen canvas is scaled to fit the viewport, so the page stays easy to use on mobile and does not introduce horizontal scrolling.
+- Exports use the canvas's actual pixel dimensions rather than the visually scaled size, which helps preserve clarity.
+- PDF export uses an A4-based page width and supports choosing the embedded image format depending on whether you want better detail retention or a smaller file.
+
+## Local Development
+
+Install dependencies and start the development server:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Tech Stack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next.js
+- React
+- TypeScript
+- pdf-lib
+- lucide-react
