@@ -2,18 +2,26 @@
 'use client'
 
 import { useActionSheet } from '@/components/action-sheet/use-action-sheet'
+import {
+  ImageEditor,
+  ImageEditorValue,
+} from '@/components/image-editor'
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
 import Image from 'next/image'
 import { PageSizes, PDFDocument } from 'pdf-lib'
 import { ChangeEvent, useEffect, useRef, useState } from 'react'
 
-type SelectedImage = {
+type LoadedImage = {
   id: string
   name: string
   previewUrl: string
   element: HTMLImageElement
   width: number
   height: number
+}
+
+type ImageItem = LoadedImage & {
+  editor: ImageEditorValue
 }
 
 type CanvasSummary = {
@@ -23,12 +31,12 @@ type CanvasSummary = {
 }
 
 type DrawPlan = {
-  image: SelectedImage
+  image: ImageItem
   drawWidth: number
   drawHeight: number
 }
 
-function loadImage(file: File): Promise<SelectedImage> {
+function loadImage(file: File): Promise<ImageItem> {
   const previewUrl = URL.createObjectURL(file)
 
   return new Promise((resolve, reject) => {
@@ -42,6 +50,11 @@ function loadImage(file: File): Promise<SelectedImage> {
         element: image,
         width: image.naturalWidth,
         height: image.naturalHeight,
+        editor: {
+          scale: 1,
+          offsetX: 0,
+          offsetY: 0,
+        },
       })
     }
 
@@ -54,7 +67,7 @@ function loadImage(file: File): Promise<SelectedImage> {
   })
 }
 
-function buildDrawPlans(images: SelectedImage[]): {
+function buildDrawPlans(images: ImageItem[]): {
   summary: CanvasSummary
   drawPlans: DrawPlan[]
 } | null {
@@ -92,6 +105,66 @@ function buildDrawPlans(images: SelectedImage[]): {
   }
 }
 
+function drawEditedImage(
+  context: CanvasRenderingContext2D,
+  image: ImageItem,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const sourceWidth = image.width / image.editor.scale
+  const sourceHeight = image.height / image.editor.scale
+  const sourceX = ((-image.editor.offsetX) / image.editor.scale) * image.width
+  const sourceY =
+    ((-image.editor.offsetY) / image.editor.scale) * image.height
+
+  context.drawImage(
+    image.element,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    x,
+    y,
+    width,
+    height,
+  )
+}
+
+function buildMergedCanvas(drawPlans: DrawPlan[]) {
+  const totalHeight = drawPlans.reduce((sum, plan) => sum + plan.drawHeight, 0)
+  const canvas = document.createElement('canvas')
+
+  canvas.width = drawPlans[0]?.drawWidth ?? 0
+  canvas.height = totalHeight
+
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    throw new Error('无法获取 Canvas 上下文')
+  }
+
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+
+  let offsetY = 0
+
+  for (const plan of drawPlans) {
+    drawEditedImage(
+      context,
+      plan.image,
+      0,
+      offsetY,
+      plan.drawWidth,
+      plan.drawHeight,
+    )
+    offsetY += plan.drawHeight
+  }
+
+  return canvas
+}
+
 function getExportFileBaseName() {
   const now = new Date()
   const year = now.getFullYear()
@@ -118,10 +191,9 @@ const PDF_MAX_IMAGE_WIDTH = Math.round(A4_WIDTH * 3)
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const imagesRef = useRef<SelectedImage[]>([])
+  const imagesRef = useRef<ImageItem[]>([])
   const { actionSheetNode, openActionSheet } = useActionSheet()
-  const [images, setImages] = useState<SelectedImage[]>([])
+  const [images, setImages] = useState<ImageItem[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [isExportingImage, setIsExportingImage] = useState(false)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
@@ -141,48 +213,6 @@ export default function Home() {
       }
     }
   }, [])
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-
-    if (!canvas) {
-      return
-    }
-
-    if (images.length === 0) {
-      canvas.width = 0
-      canvas.height = 0
-      return
-    }
-
-    if (!canvasData) {
-      return
-    }
-
-    const context = canvas.getContext('2d')
-
-    if (!context) {
-      setErrorMessage('无法获取 Canvas 上下文')
-      return
-    }
-
-    canvas.width = canvasData.summary.width
-    canvas.height = canvasData.summary.height
-    context.clearRect(0, 0, canvas.width, canvas.height)
-
-    let offsetY = 0
-
-    for (const plan of canvasData.drawPlans) {
-      context.drawImage(
-        plan.image.element,
-        0,
-        offsetY,
-        plan.drawWidth,
-        plan.drawHeight,
-      )
-      offsetY += plan.drawHeight
-    }
-  }, [canvasData, images.length])
 
   const handlePickImages = () => {
     inputRef.current?.click()
@@ -212,9 +242,7 @@ export default function Home() {
   }
 
   const handleDownloadImage = async (format: 'png' | 'jpeg') => {
-    const canvas = canvasRef.current
-
-    if (!canvas || !summary) {
+    if (!canvasData || !summary) {
       return
     }
 
@@ -222,13 +250,14 @@ export default function Home() {
     setErrorMessage('')
 
     try {
+      const mergedCanvas = buildMergedCanvas(canvasData.drawPlans)
       const blob = await new Promise<Blob | null>((resolve) => {
         if (format === 'png') {
-          canvas.toBlob(resolve, 'image/png')
+          mergedCanvas.toBlob(resolve, 'image/png')
           return
         }
 
-        canvas.toBlob(resolve, 'image/jpeg', 1)
+        mergedCanvas.toBlob(resolve, 'image/jpeg', 1)
       })
 
       if (!blob) {
@@ -277,9 +306,7 @@ export default function Home() {
   }
 
   const handleDownloadPdf = async (format: 'png' | 'jpeg') => {
-    const canvas = canvasRef.current
-
-    if (!canvas || !summary) {
+    if (!canvasData || !summary) {
       return
     }
 
@@ -287,6 +314,7 @@ export default function Home() {
     setErrorMessage('')
 
     try {
+      const mergedCanvas = buildMergedCanvas(canvasData.drawPlans)
       const exportWidth = Math.min(summary.width, PDF_MAX_IMAGE_WIDTH)
       const exportHeight = Math.round((summary.height * exportWidth) / summary.width)
       const exportCanvas = document.createElement('canvas')
@@ -302,7 +330,7 @@ export default function Home() {
 
       exportContext.imageSmoothingEnabled = true
       exportContext.imageSmoothingQuality = 'high'
-      exportContext.drawImage(canvas, 0, 0, exportWidth, exportHeight)
+      exportContext.drawImage(mergedCanvas, 0, 0, exportWidth, exportHeight)
 
       const pdfDoc = await PDFDocument.create()
       const pdfImage =
@@ -412,6 +440,14 @@ export default function Home() {
       nextImages.splice(targetIndex, 0, image)
       return nextImages
     })
+  }
+
+  const handleImageEditorChange = (id: string, editor: ImageEditorValue) => {
+    setImages((currentImages) =>
+      currentImages.map((image) =>
+        image.id === id ? { ...image, editor } : image,
+      ),
+    )
   }
 
   const actionButtonStyle = {
@@ -678,23 +714,33 @@ export default function Home() {
             boxSizing: 'border-box',
           }}
         >
-          <canvas
-            ref={canvasRef}
-            style={{
-              display: summary ? 'block' : 'none',
-              width: '100%',
-              maxWidth: '100%',
-              height: 'auto',
-              margin: '0 auto',
-              backgroundColor: '#ffffff',
-            }}
-          />
-
-          {!summary ? (
+          {canvasData ? (
+            <div
+              style={{
+                display: 'grid',
+                gap: 0,
+                overflow: 'hidden',
+              }}
+            >
+              {canvasData.drawPlans.map((plan) => (
+                <ImageEditor
+                  key={plan.image.id}
+                  src={plan.image.previewUrl}
+                  alt={plan.image.name}
+                  value={plan.image.editor}
+                  viewportWidth={plan.drawWidth}
+                  viewportHeight={plan.drawHeight}
+                  onChange={(editor) =>
+                    handleImageEditorChange(plan.image.id, editor)
+                  }
+                />
+              ))}
+            </div>
+          ) : (
             <p style={{ margin: 0, color: '#6b7280' }}>
               选择多张图片后，会按顺序上下拼接并生成一张高清导出图。
             </p>
-          ) : null}
+          )}
         </div>
       </div>
       {actionSheetNode}
