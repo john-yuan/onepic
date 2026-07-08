@@ -339,6 +339,21 @@ export default function Home() {
     })
   }
 
+  const confirmRemoveImage = (imageId: string) => {
+    openActionSheet({
+      title: '删除这张图片？',
+      description: '删除后将从当前拼接结果中移除',
+      actions: [
+        {
+          key: 'delete',
+          label: '删除图片',
+          tone: 'danger',
+          onSelect: () => removeImage(imageId),
+        },
+      ],
+    })
+  }
+
   const moveImage = (id: string, direction: 'up' | 'down') => {
     setImages((currentImages) => {
       const index = currentImages.findIndex((image) => image.id === id)
@@ -591,7 +606,7 @@ export default function Home() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => removeImage(image.id)}
+                    onClick={() => confirmRemoveImage(image.id)}
                     aria-label="删除图片"
                     title="删除"
                     style={{
