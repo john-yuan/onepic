@@ -36,6 +36,20 @@ type DrawPlan = {
   drawHeight: number
 }
 
+type CropPlan = {
+  image: ImageItem
+  sourceX: number
+  sourceY: number
+  sourceWidth: number
+  sourceHeight: number
+}
+
+type ExportPlan = {
+  cropPlan: CropPlan
+  drawWidth: number
+  drawHeight: number
+}
+
 function loadImage(file: File): Promise<ImageItem> {
   const previewUrl = URL.createObjectURL(file)
 
@@ -67,7 +81,7 @@ function loadImage(file: File): Promise<ImageItem> {
   })
 }
 
-function buildDrawPlans(images: ImageItem[]): {
+function buildPreviewPlans(images: ImageItem[]): {
   summary: CanvasSummary
   drawPlans: DrawPlan[]
 } | null {
@@ -105,35 +119,93 @@ function buildDrawPlans(images: ImageItem[]): {
   }
 }
 
-function drawEditedImage(
-  context: CanvasRenderingContext2D,
-  image: ImageItem,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-) {
-  const sourceWidth = image.width / image.editor.scale
-  const sourceHeight = image.height / image.editor.scale
-  const sourceX = ((-image.editor.offsetX) / image.editor.scale) * image.width
-  const sourceY =
-    ((-image.editor.offsetY) / image.editor.scale) * image.height
+function buildCropPlans(images: ImageItem[]): CropPlan[] {
+  return images.map((image) => ({
+    image,
+    sourceX: ((-image.editor.offsetX) / image.editor.scale) * image.width,
+    sourceY: ((-image.editor.offsetY) / image.editor.scale) * image.height,
+    sourceWidth: image.width / image.editor.scale,
+    sourceHeight: image.height / image.editor.scale,
+  }))
+}
 
+function buildExportPlans(cropPlans: CropPlan[]): {
+  summary: CanvasSummary
+  exportPlans: ExportPlan[]
+} | null {
+  if (cropPlans.length === 0) {
+    return null
+  }
+
+  const targetWidth = Math.min(...cropPlans.map((plan) => plan.sourceWidth))
+  const exportPlans = cropPlans.map((cropPlan) => {
+    if (cropPlan.sourceWidth <= targetWidth) {
+      return {
+        cropPlan,
+        drawWidth: Math.max(1, Math.round(cropPlan.sourceWidth)),
+        drawHeight: Math.max(1, Math.round(cropPlan.sourceHeight)),
+      }
+    }
+
+    const scale = targetWidth / cropPlan.sourceWidth
+
+    return {
+      cropPlan,
+      drawWidth: Math.max(1, Math.round(targetWidth)),
+      drawHeight: Math.max(1, Math.round(cropPlan.sourceHeight * scale)),
+    }
+  })
+  const totalHeight = exportPlans.reduce(
+    (sum, plan) => sum + plan.drawHeight,
+    0,
+  )
+
+  return {
+    summary: {
+      count: cropPlans.length,
+      width: Math.max(1, Math.round(targetWidth)),
+      height: totalHeight,
+    },
+    exportPlans,
+  }
+}
+
+function createCroppedCanvas(cropPlan: CropPlan) {
+  const canvas = document.createElement('canvas')
+  const width = Math.max(1, Math.round(cropPlan.sourceWidth))
+  const height = Math.max(1, Math.round(cropPlan.sourceHeight))
+
+  canvas.width = width
+  canvas.height = height
+
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    throw new Error('无法获取裁剪 Canvas 上下文')
+  }
+
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
   context.drawImage(
-    image.element,
-    sourceX,
-    sourceY,
-    sourceWidth,
-    sourceHeight,
-    x,
-    y,
+    cropPlan.image.element,
+    cropPlan.sourceX,
+    cropPlan.sourceY,
+    cropPlan.sourceWidth,
+    cropPlan.sourceHeight,
+    0,
+    0,
     width,
     height,
   )
+
+  return canvas
 }
 
-function buildMergedCanvas(drawPlans: DrawPlan[], canvasWidth: number) {
-  const totalHeight = drawPlans.reduce((sum, plan) => sum + plan.drawHeight, 0)
+function buildMergedCanvas(exportPlans: ExportPlan[], canvasWidth: number) {
+  const totalHeight = exportPlans.reduce(
+    (sum, plan) => sum + plan.drawHeight,
+    0,
+  )
   const canvas = document.createElement('canvas')
 
   canvas.width = canvasWidth
@@ -150,10 +222,11 @@ function buildMergedCanvas(drawPlans: DrawPlan[], canvasWidth: number) {
 
   let offsetY = 0
 
-  for (const plan of drawPlans) {
-    drawEditedImage(
-      context,
-      plan.image,
+  for (const plan of exportPlans) {
+    const croppedCanvas = createCroppedCanvas(plan.cropPlan)
+
+    context.drawImage(
+      croppedCanvas,
       0,
       offsetY,
       plan.drawWidth,
@@ -198,8 +271,10 @@ export default function Home() {
   const [isExportingImage, setIsExportingImage] = useState(false)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
-  const canvasData = buildDrawPlans(images)
-  const summary = canvasData?.summary ?? null
+  const previewData = buildPreviewPlans(images)
+  const cropPlans = buildCropPlans(images)
+  const exportData = buildExportPlans(cropPlans)
+  const summary = exportData?.summary ?? null
   const isExportBusy = isExportingImage || isExportingPdf
 
   useEffect(() => {
@@ -242,7 +317,7 @@ export default function Home() {
   }
 
   const handleDownloadImage = async (format: 'png' | 'jpeg') => {
-    if (!canvasData || !summary) {
+    if (!exportData || !summary) {
       return
     }
 
@@ -251,8 +326,8 @@ export default function Home() {
 
     try {
       const mergedCanvas = buildMergedCanvas(
-        canvasData.drawPlans,
-        canvasData.summary.width,
+        exportData.exportPlans,
+        exportData.summary.width,
       )
       const blob = await new Promise<Blob | null>((resolve) => {
         if (format === 'png') {
@@ -309,7 +384,7 @@ export default function Home() {
   }
 
   const handleDownloadPdf = async (format: 'png' | 'jpeg') => {
-    if (!canvasData || !summary) {
+    if (!exportData || !summary) {
       return
     }
 
@@ -318,8 +393,8 @@ export default function Home() {
 
     try {
       const mergedCanvas = buildMergedCanvas(
-        canvasData.drawPlans,
-        canvasData.summary.width,
+        exportData.exportPlans,
+        exportData.summary.width,
       )
       const exportWidth = Math.min(summary.width, PDF_MAX_IMAGE_WIDTH)
       const exportHeight = Math.round((summary.height * exportWidth) / summary.width)
@@ -720,7 +795,7 @@ export default function Home() {
             boxSizing: 'border-box',
           }}
         >
-          {canvasData ? (
+          {previewData ? (
             <div
               style={{
                 display: 'grid',
@@ -728,11 +803,11 @@ export default function Home() {
                 overflow: 'hidden',
               }}
             >
-              {canvasData.drawPlans.map((plan) => (
+              {previewData.drawPlans.map((plan) => (
                 <div
                   key={plan.image.id}
                   style={{
-                    width: `${(plan.drawWidth / canvasData.summary.width) * 100}%`,
+                    width: `${(plan.drawWidth / previewData.summary.width) * 100}%`,
                   }}
                 >
                   <ImageEditor
