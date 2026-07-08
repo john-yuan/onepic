@@ -579,9 +579,10 @@ export default function Home() {
                     title="上移"
                     style={{
                       ...actionButtonStyle,
-                      border: '1px solid #d1d5db',
-                      backgroundColor: '#ffffff',
-                      color: '#111827',
+                      border: index === 0 ? '1px solid #e5e7eb' : '1px solid #d1d5db',
+                      backgroundColor: index === 0 ? '#f3f4f6' : '#ffffff',
+                      color: index === 0 ? '#9ca3af' : '#111827',
+                      opacity: index === 0 ? 0.65 : 1,
                       cursor: index === 0 ? 'not-allowed' : 'pointer',
                     }}
                   >
@@ -595,9 +596,15 @@ export default function Home() {
                     title="下移"
                     style={{
                       ...actionButtonStyle,
-                      border: '1px solid #d1d5db',
-                      backgroundColor: '#ffffff',
-                      color: '#111827',
+                      border:
+                        index === images.length - 1
+                          ? '1px solid #e5e7eb'
+                          : '1px solid #d1d5db',
+                      backgroundColor:
+                        index === images.length - 1 ? '#f3f4f6' : '#ffffff',
+                      color:
+                        index === images.length - 1 ? '#9ca3af' : '#111827',
+                      opacity: index === images.length - 1 ? 0.65 : 1,
                       cursor:
                         index === images.length - 1 ? 'not-allowed' : 'pointer',
                     }}
