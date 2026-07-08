@@ -276,7 +276,7 @@ export default function Home() {
     })
   }
 
-  const handleDownloadPdf = async () => {
+  const handleDownloadPdf = async (format: 'png' | 'jpeg') => {
     const canvas = canvasRef.current
 
     if (!canvas || !summary) {
@@ -304,13 +304,15 @@ export default function Home() {
       exportContext.imageSmoothingQuality = 'high'
       exportContext.drawImage(canvas, 0, 0, exportWidth, exportHeight)
 
-      const jpgDataUrl = exportCanvas.toDataURL('image/jpeg', 1)
       const pdfDoc = await PDFDocument.create()
-      const jpgImage = await pdfDoc.embedJpg(jpgDataUrl)
+      const pdfImage =
+        format === 'png'
+          ? await pdfDoc.embedPng(exportCanvas.toDataURL('image/png'))
+          : await pdfDoc.embedJpg(exportCanvas.toDataURL('image/jpeg', 1))
       const pdfHeight = Math.round((summary.height * A4_WIDTH) / summary.width)
       const page = pdfDoc.addPage([A4_WIDTH, pdfHeight])
 
-      page.drawImage(jpgImage, {
+      page.drawImage(pdfImage, {
         x: 0,
         y: 0,
         width: A4_WIDTH,
@@ -334,6 +336,30 @@ export default function Home() {
     } finally {
       setIsExportingPdf(false)
     }
+  }
+
+  const handleOpenPdfExportActionSheet = () => {
+    if (!summary || isExportBusy) {
+      return
+    }
+
+    openActionSheet({
+      title: '请选择 PDF 内嵌图片格式',
+      description:
+        'PNG：更适合保留细节和边缘，导出的 PDF 通常更清晰，但文件体积往往更大。\nJPEG：更适合压缩照片内容，导出的 PDF 通常更小，更方便分享，但格式本身为有损编码。',
+      actions: [
+        {
+          key: 'pdf-png',
+          label: '内嵌 PNG',
+          onSelect: () => handleDownloadPdf('png'),
+        },
+        {
+          key: 'pdf-jpeg',
+          label: '内嵌 JPEG',
+          onSelect: () => handleDownloadPdf('jpeg'),
+        },
+      ],
+    })
   }
 
   const removeImage = (id: string) => {
@@ -467,7 +493,7 @@ export default function Home() {
 
           <button
             type="button"
-            onClick={handleDownloadPdf}
+            onClick={handleOpenPdfExportActionSheet}
             disabled={!summary || isExportBusy}
             style={{
               border: '1px solid #d1d5db',
