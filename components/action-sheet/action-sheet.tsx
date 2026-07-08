@@ -139,6 +139,7 @@ export function ActionSheet({
                     fontSize: 13,
                     lineHeight: 1.5,
                     color: '#8e8e93',
+                    whiteSpace: 'pre-line',
                   }}
                 >
                   {description}

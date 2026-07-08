@@ -250,7 +250,8 @@ export default function Home() {
 
     openActionSheet({
       title: '请选择图片格式',
-      description: '你可以将当前拼接结果保存为 PNG 或 JPEG',
+      description:
+        'PNG：画质更稳定，适合保留细节，但文件通常更大。\nJPEG：文件更小，更适合分享，格式本身为有损编码。',
       actions: [
         {
           key: 'png',
