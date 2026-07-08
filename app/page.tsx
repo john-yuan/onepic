@@ -1,6 +1,7 @@
 
 'use client'
 
+import { useActionSheet } from '@/components/action-sheet/use-action-sheet'
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
 import Image from 'next/image'
 import { PageSizes, PDFDocument } from 'pdf-lib'
@@ -110,12 +111,15 @@ export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imagesRef = useRef<SelectedImage[]>([])
+  const { actionSheetNode, openActionSheet } = useActionSheet()
   const [images, setImages] = useState<SelectedImage[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isExportingImage, setIsExportingImage] = useState(false)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const canvasData = buildDrawPlans(images)
   const summary = canvasData?.summary ?? null
+  const isExportBusy = isExportingImage || isExportingPdf
 
   useEffect(() => {
     imagesRef.current = images
@@ -198,30 +202,68 @@ export default function Home() {
     }
   }
 
-  const handleDownload = async () => {
+  const handleDownloadImage = async (format: 'png' | 'jpeg') => {
     const canvas = canvasRef.current
 
     if (!canvas || !summary) {
       return
     }
 
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, 'image/jpeg', 1)
-    })
+    setIsExportingImage(true)
+    setErrorMessage('')
 
-    if (!blob) {
-      setErrorMessage('导出图片失败，请重试。')
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => {
+        if (format === 'png') {
+          canvas.toBlob(resolve, 'image/png')
+          return
+        }
+
+        canvas.toBlob(resolve, 'image/jpeg', 1)
+      })
+
+      if (!blob) {
+        throw new Error('导出图片失败，请重试。')
+      }
+
+      const downloadUrl = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      const fileBaseName = getExportFileBaseName()
+
+      anchor.href = downloadUrl
+      anchor.download = `${fileBaseName}.${format}`
+      anchor.click()
+      URL.revokeObjectURL(downloadUrl)
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : '导出图片失败，请重试。',
+      )
+    } finally {
+      setIsExportingImage(false)
+    }
+  }
+
+  const handleOpenImageExportActionSheet = () => {
+    if (!summary || isExportBusy) {
       return
     }
 
-    const downloadUrl = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    const fileBaseName = getExportFileBaseName()
-
-    anchor.href = downloadUrl
-    anchor.download = `${fileBaseName}.jpeg`
-    anchor.click()
-    URL.revokeObjectURL(downloadUrl)
+    openActionSheet({
+      title: '请选择图片格式',
+      description: '你可以将当前拼接结果保存为 PNG 或 JPEG',
+      actions: [
+        {
+          key: 'png',
+          label: '保存为 PNG',
+          onSelect: () => handleDownloadImage('png'),
+        },
+        {
+          key: 'jpeg',
+          label: '保存为 JPEG',
+          onSelect: () => handleDownloadImage('jpeg'),
+        },
+      ],
+    })
   }
 
   const handleDownloadPdf = async () => {
@@ -380,38 +422,40 @@ export default function Home() {
 
           <button
             type="button"
-            onClick={handleDownload}
-            disabled={!summary}
-            style={{
-              border: '1px solid #d1d5db',
-              borderRadius: 8,
-              padding: '10px 16px',
-              backgroundColor: summary ? '#ffffff' : '#f3f4f6',
-              color: summary ? '#111827' : '#9ca3af',
-              borderColor: summary ? '#d1d5db' : '#e5e7eb',
-              opacity: summary ? 1 : 0.7,
-              cursor: summary ? 'pointer' : 'not-allowed',
-            }}
-          >
-            保存图片
-          </button>
-
-          <button
-            type="button"
-            onClick={handleDownloadPdf}
-            disabled={!summary || isExportingPdf}
+            onClick={handleOpenImageExportActionSheet}
+            disabled={!summary || isExportBusy}
             style={{
               border: '1px solid #d1d5db',
               borderRadius: 8,
               padding: '10px 16px',
               backgroundColor:
-                summary && !isExportingPdf ? '#ffffff' : '#f3f4f6',
-              color: summary && !isExportingPdf ? '#111827' : '#9ca3af',
+                summary && !isExportBusy ? '#ffffff' : '#f3f4f6',
+              color: summary && !isExportBusy ? '#111827' : '#9ca3af',
               borderColor:
-                summary && !isExportingPdf ? '#d1d5db' : '#e5e7eb',
-              opacity: summary && !isExportingPdf ? 1 : 0.7,
+                summary && !isExportBusy ? '#d1d5db' : '#e5e7eb',
+              opacity: summary && !isExportBusy ? 1 : 0.7,
+              cursor: summary && !isExportBusy ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {isExportingImage ? '导出图片...' : '保存图片'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={!summary || isExportBusy}
+            style={{
+              border: '1px solid #d1d5db',
+              borderRadius: 8,
+              padding: '10px 16px',
+              backgroundColor:
+                summary && !isExportBusy ? '#ffffff' : '#f3f4f6',
+              color: summary && !isExportBusy ? '#111827' : '#9ca3af',
+              borderColor:
+                summary && !isExportBusy ? '#d1d5db' : '#e5e7eb',
+              opacity: summary && !isExportBusy ? 1 : 0.7,
               cursor:
-                summary && !isExportingPdf ? 'pointer' : 'not-allowed',
+                summary && !isExportBusy ? 'pointer' : 'not-allowed',
             }}
           >
             {isExportingPdf ? '导出 PDF...' : '保存为 PDF'}
@@ -595,6 +639,7 @@ export default function Home() {
           ) : null}
         </div>
       </div>
+      {actionSheetNode}
     </main>
   )
 }
