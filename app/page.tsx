@@ -142,14 +142,6 @@ function buildExportPlans(cropPlans: CropPlan[]): {
     Math.min(...cropPlans.map((plan) => plan.sourceWidth)),
   )
   const exportPlans = cropPlans.map((cropPlan) => {
-    if (cropPlan.sourceWidth <= targetWidth) {
-      return {
-        cropPlan,
-        drawWidth: Math.max(1, Math.round(cropPlan.sourceWidth)),
-        drawHeight: Math.max(1, Math.round(cropPlan.sourceHeight)),
-      }
-    }
-
     const scale = targetWidth / cropPlan.sourceWidth
 
     return {
