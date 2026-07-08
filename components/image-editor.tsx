@@ -18,6 +18,25 @@ type ImageEditorProps = {
   onChange: (value: ImageEditorValue) => void
 }
 
+type TouchGesture =
+  | {
+      type: 'pan'
+      startX: number
+      startY: number
+      startValue: ImageEditorValue
+      rectWidth: number
+      rectHeight: number
+    }
+  | {
+      type: 'pinch'
+      previousDistance: number
+      previousCenterX: number
+      previousCenterY: number
+      rectWidth: number
+      rectHeight: number
+    }
+  | null
+
 const MAX_SCALE = 4
 
 function clampOffset(scale: number, offsetX: number, offsetY: number) {
@@ -74,6 +93,12 @@ export function ImageEditor({
   onChange,
 }: ImageEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const valueRef = useRef(value)
+  const touchGestureRef = useRef<TouchGesture>(null)
+
+  useEffect(() => {
+    valueRef.current = value
+  }, [value])
 
   useEffect(() => {
     const container = containerRef.current
@@ -144,42 +169,19 @@ export function ImageEditor({
   }
 
   const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+
     if (event.touches.length === 1) {
       const touch = event.touches[0]
-      const startX = touch.clientX
-      const startY = touch.clientY
-      const startValue = value
-      const rect = event.currentTarget.getBoundingClientRect()
 
-      const handleTouchMove = (moveEvent: globalThis.TouchEvent) => {
-        if (moveEvent.touches.length !== 1) {
-          return
-        }
-
-        moveEvent.preventDefault()
-
-        const moveTouch = moveEvent.touches[0]
-        const deltaX = (moveTouch.clientX - startX) / rect.width
-        const deltaY = (moveTouch.clientY - startY) / rect.height
-
-        onChange(
-          clampValue({
-            ...startValue,
-            offsetX: startValue.offsetX + deltaX,
-            offsetY: startValue.offsetY + deltaY,
-          }),
-        )
+      touchGestureRef.current = {
+        type: 'pan',
+        startX: touch.clientX,
+        startY: touch.clientY,
+        startValue: valueRef.current,
+        rectWidth: rect.width,
+        rectHeight: rect.height,
       }
-
-      const handleTouchEnd = () => {
-        window.removeEventListener('touchmove', handleTouchMove)
-        window.removeEventListener('touchend', handleTouchEnd)
-        window.removeEventListener('touchcancel', handleTouchEnd)
-      }
-
-      window.addEventListener('touchmove', handleTouchMove, { passive: false })
-      window.addEventListener('touchend', handleTouchEnd)
-      window.addEventListener('touchcancel', handleTouchEnd)
       return
     }
 
@@ -191,69 +193,130 @@ export function ImageEditor({
         return
       }
 
-      const rect = event.currentTarget.getBoundingClientRect()
-      let previousDistance = Math.hypot(
+      touchGestureRef.current = {
+        type: 'pinch',
+        previousDistance: Math.hypot(
+          secondTouch.clientX - firstTouch.clientX,
+          secondTouch.clientY - firstTouch.clientY,
+        ),
+        previousCenterX:
+          (firstTouch.clientX + secondTouch.clientX) / 2 - rect.left,
+        previousCenterY:
+          (firstTouch.clientY + secondTouch.clientY) / 2 - rect.top,
+        rectWidth: rect.width,
+        rectHeight: rect.height,
+      }
+    }
+  }
+
+  const handleTouchMove = (event: TouchEvent<HTMLDivElement>) => {
+    const gesture = touchGestureRef.current
+
+    if (!gesture) {
+      return
+    }
+
+    if (event.touches.length === 1 && gesture.type === 'pan') {
+      event.preventDefault()
+
+      const touch = event.touches[0]
+      const deltaX = (touch.clientX - gesture.startX) / gesture.rectWidth
+      const deltaY = (touch.clientY - gesture.startY) / gesture.rectHeight
+
+      onChange(
+        clampValue({
+          ...gesture.startValue,
+          offsetX: gesture.startValue.offsetX + deltaX,
+          offsetY: gesture.startValue.offsetY + deltaY,
+        }),
+      )
+      return
+    }
+
+    if (event.touches.length === 2) {
+      event.preventDefault()
+
+      const firstTouch = event.touches.item(0)
+      const secondTouch = event.touches.item(1)
+
+      if (!firstTouch || !secondTouch) {
+        return
+      }
+
+      if (gesture.type !== 'pinch') {
+        const rect = event.currentTarget.getBoundingClientRect()
+
+        touchGestureRef.current = {
+          type: 'pinch',
+          previousDistance: Math.hypot(
+            secondTouch.clientX - firstTouch.clientX,
+            secondTouch.clientY - firstTouch.clientY,
+          ),
+          previousCenterX:
+            (firstTouch.clientX + secondTouch.clientX) / 2 - rect.left,
+          previousCenterY:
+            (firstTouch.clientY + secondTouch.clientY) / 2 - rect.top,
+          rectWidth: rect.width,
+          rectHeight: rect.height,
+        }
+        return
+      }
+
+      const currentDistance = Math.hypot(
         secondTouch.clientX - firstTouch.clientX,
         secondTouch.clientY - firstTouch.clientY,
       )
-      let previousCenterX =
-        (firstTouch.clientX + secondTouch.clientX) / 2 - rect.left
-      let previousCenterY =
-        (firstTouch.clientY + secondTouch.clientY) / 2 - rect.top
+      const containerRect = event.currentTarget.getBoundingClientRect()
+      const normalizedCenterX =
+        (firstTouch.clientX + secondTouch.clientX) / 2 - containerRect.left
+      const normalizedCenterY =
+        (firstTouch.clientY + secondTouch.clientY) / 2 - containerRect.top
+      const centerDeltaX =
+        (normalizedCenterX - gesture.previousCenterX) / gesture.rectWidth
+      const centerDeltaY =
+        (normalizedCenterY - gesture.previousCenterY) / gesture.rectHeight
+      const movedValue = clampValue({
+        ...valueRef.current,
+        offsetX: valueRef.current.offsetX + centerDeltaX,
+        offsetY: valueRef.current.offsetY + centerDeltaY,
+      })
+      const nextValue = zoomFromPoint(
+        movedValue,
+        movedValue.scale * (currentDistance / gesture.previousDistance),
+        normalizedCenterX,
+        normalizedCenterY,
+        gesture.rectWidth,
+        gesture.rectHeight,
+      )
 
-      const handleTouchMove = (moveEvent: globalThis.TouchEvent) => {
-        if (moveEvent.touches.length !== 2) {
-          return
-        }
-
-        moveEvent.preventDefault()
-
-        const moveFirstTouch = moveEvent.touches.item(0)
-        const moveSecondTouch = moveEvent.touches.item(1)
-
-        if (!moveFirstTouch || !moveSecondTouch) {
-          return
-        }
-
-        const currentDistance = Math.hypot(
-          moveSecondTouch.clientX - moveFirstTouch.clientX,
-          moveSecondTouch.clientY - moveFirstTouch.clientY,
-        )
-        const currentCenterX =
-          (moveFirstTouch.clientX + moveSecondTouch.clientX) / 2 - rect.left
-        const currentCenterY =
-          (moveFirstTouch.clientY + moveSecondTouch.clientY) / 2 - rect.top
-        const centerDeltaX = (currentCenterX - previousCenterX) / rect.width
-        const centerDeltaY = (currentCenterY - previousCenterY) / rect.height
-        const movedValue = clampValue({
-          ...value,
-          offsetX: value.offsetX + centerDeltaX,
-          offsetY: value.offsetY + centerDeltaY,
-        })
-        const nextValue = zoomFromPoint(
-          movedValue,
-          movedValue.scale * (currentDistance / previousDistance),
-          currentCenterX,
-          currentCenterY,
-          rect.width,
-          rect.height,
-        )
-
-        previousDistance = currentDistance
-        previousCenterX = currentCenterX
-        previousCenterY = currentCenterY
-        onChange(nextValue)
+      touchGestureRef.current = {
+        ...gesture,
+        previousDistance: currentDistance,
+        previousCenterX: normalizedCenterX,
+        previousCenterY: normalizedCenterY,
       }
+      onChange(nextValue)
+    }
+  }
 
-      const handleTouchEnd = () => {
-        window.removeEventListener('touchmove', handleTouchMove)
-        window.removeEventListener('touchend', handleTouchEnd)
-        window.removeEventListener('touchcancel', handleTouchEnd)
+  const handleTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length === 0) {
+      touchGestureRef.current = null
+      return
+    }
+
+    if (event.touches.length === 1) {
+      const touch = event.touches[0]
+      const rect = event.currentTarget.getBoundingClientRect()
+
+      touchGestureRef.current = {
+        type: 'pan',
+        startX: touch.clientX,
+        startY: touch.clientY,
+        startValue: valueRef.current,
+        rectWidth: rect.width,
+        rectHeight: rect.height,
       }
-
-      window.addEventListener('touchmove', handleTouchMove, { passive: false })
-      window.addEventListener('touchend', handleTouchEnd)
-      window.addEventListener('touchcancel', handleTouchEnd)
     }
   }
 
@@ -262,6 +325,9 @@ export function ImageEditor({
       ref={containerRef}
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       style={{
         position: 'relative',
         width: '100%',
