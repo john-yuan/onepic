@@ -1,21 +1,27 @@
 'use client'
 
-import { ReactNode, useMemo, useState } from 'react'
+import { ReactNode, useMemo, useRef, useState } from 'react'
 
-import { ActionSheet, ActionSheetAction } from './action-sheet'
+import {
+  ActionSheet,
+  ActionSheetAction,
+  ActionSheetCloseReason,
+} from './action-sheet'
 
 type OpenActionSheetOptions = {
   title?: string
   description?: string
   actions: ActionSheetAction[]
   cancelText?: string
+  onClose?: (reason: ActionSheetCloseReason) => void
 }
 
-type ActionSheetState = OpenActionSheetOptions & {
+type ActionSheetState = Omit<OpenActionSheetOptions, 'onClose'> & {
   open: boolean
 }
 
 export function useActionSheet() {
+  const onCloseRef = useRef<OpenActionSheetOptions['onClose']>(undefined)
   const [state, setState] = useState<ActionSheetState>({
     open: false,
     title: undefined,
@@ -24,7 +30,10 @@ export function useActionSheet() {
     cancelText: '取消',
   })
 
-  const closeActionSheet = () => {
+  const closeActionSheet = (reason: ActionSheetCloseReason = 'cancel') => {
+    onCloseRef.current?.(reason)
+    onCloseRef.current = undefined
+
     setState((currentState) => ({
       ...currentState,
       open: false,
@@ -32,6 +41,7 @@ export function useActionSheet() {
   }
 
   const openActionSheet = (options: OpenActionSheetOptions) => {
+    onCloseRef.current = options.onClose
     setState({
       open: true,
       title: options.title,

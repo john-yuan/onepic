@@ -254,6 +254,49 @@ function createPdfBlob(pdfBytes: Uint8Array) {
   return new Blob([buffer], { type: 'application/pdf' })
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) {
+    return error.message || fallback
+  }
+
+  if (typeof error === 'string' && error) {
+    return error
+  }
+
+  return fallback
+}
+
+function exportCanvasToBlob(
+  canvas: HTMLCanvasElement,
+  format: 'png' | 'jpeg',
+) {
+  return new Promise<Blob>((resolve, reject) => {
+    const mimeType = format === 'png' ? 'image/png' : 'image/jpeg'
+    const quality = format === 'jpeg' ? 1 : undefined
+
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob)
+          return
+        }
+
+        reject(
+          new Error(
+            `浏览器未能生成导出文件，当前图片尺寸为 ${canvas.width}x${canvas.height}，可能是图片过大或设备内存不足`,
+          ),
+        )
+      },
+      mimeType,
+      quality,
+    )
+  })
+}
+
+function formatExportResolution(width: number, height: number) {
+  return `${width} x ${height}`
+}
+
 const [A4_WIDTH] = PageSizes.A4
 const PDF_MAX_IMAGE_WIDTH = Math.round(A4_WIDTH * 3)
 
@@ -311,6 +354,62 @@ export default function Home() {
     }
   }
 
+  const confirmRetryImageExport = ({
+    failedWidth,
+    failedHeight,
+    nextWidth,
+    nextHeight,
+  }: {
+    failedWidth: number
+    failedHeight: number
+    nextWidth: number
+    nextHeight: number
+  }) =>
+    new Promise<boolean>((resolve) => {
+      let settled = false
+
+      openActionSheet({
+        title: '当前分辨率导出失败',
+        description: [
+          `失败分辨率：${formatExportResolution(failedWidth, failedHeight)}`,
+          `下一次将尝试：${formatExportResolution(nextWidth, nextHeight)}`,
+        ].join('\n'),
+        actions: [
+          {
+            key: 'retry-lower-resolution',
+            label: '降低分辨率重试',
+            onSelect: () => {
+              settled = true
+              resolve(true)
+            },
+          },
+        ],
+        onClose: (reason) => {
+          if (settled || reason === 'action') {
+            return
+          }
+
+          settled = true
+          resolve(false)
+        },
+      })
+    })
+
+  const buildImageExportCanvas = (targetWidth: number) => {
+    if (!exportData || !summary) {
+      throw new Error('当前没有可导出的图片')
+    }
+
+    const scale = targetWidth / summary.width
+    const scaledPlans = exportData.exportPlans.map((plan) => ({
+      ...plan,
+      drawWidth: Math.max(1, Math.round(plan.drawWidth * scale)),
+      drawHeight: Math.max(1, Math.round(plan.drawHeight * scale)),
+    }))
+
+    return buildMergedCanvas(scaledPlans, Math.max(1, Math.round(targetWidth)))
+  }
+
   const handleDownloadImage = async (format: 'png' | 'jpeg') => {
     if (!exportData || !summary) {
       return
@@ -320,35 +419,57 @@ export default function Home() {
     setErrorMessage('')
 
     try {
-      const mergedCanvas = buildMergedCanvas(
-        exportData.exportPlans,
-        exportData.summary.width,
-      )
-      const blob = await new Promise<Blob | null>((resolve) => {
-        if (format === 'png') {
-          mergedCanvas.toBlob(resolve, 'image/png')
+      let targetWidth = summary.width
+
+      while (true) {
+        const targetHeight = Math.max(
+          1,
+          Math.round((summary.height * targetWidth) / summary.width),
+        )
+
+        try {
+          const mergedCanvas = buildImageExportCanvas(targetWidth)
+          const blob = await exportCanvasToBlob(mergedCanvas, format)
+          const downloadUrl = URL.createObjectURL(blob)
+          const anchor = document.createElement('a')
+          const fileBaseName = getExportFileBaseName()
+
+          anchor.href = downloadUrl
+          anchor.download = `${fileBaseName}.${format}`
+          anchor.click()
+          URL.revokeObjectURL(downloadUrl)
           return
+        } catch (error) {
+          const detail = getErrorMessage(error, '导出图片失败，请重试')
+          const nextWidth = Math.max(1, Math.floor(targetWidth / 2))
+          const nextHeight = Math.max(
+            1,
+            Math.round((summary.height * nextWidth) / summary.width),
+          )
+
+          if (nextWidth >= targetWidth) {
+            setErrorMessage(
+              `${detail}\n已无法继续降低分辨率，请尝试减少图片数量或裁剪范围`,
+            )
+            return
+          }
+
+          setErrorMessage(detail)
+
+          const shouldRetry = await confirmRetryImageExport({
+            failedWidth: targetWidth,
+            failedHeight: targetHeight,
+            nextWidth,
+            nextHeight,
+          })
+
+          if (!shouldRetry) {
+            return
+          }
+
+          targetWidth = nextWidth
         }
-
-        mergedCanvas.toBlob(resolve, 'image/jpeg', 1)
-      })
-
-      if (!blob) {
-        throw new Error('导出图片失败，请重试。')
       }
-
-      const downloadUrl = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      const fileBaseName = getExportFileBaseName()
-
-      anchor.href = downloadUrl
-      anchor.download = `${fileBaseName}.${format}`
-      anchor.click()
-      URL.revokeObjectURL(downloadUrl)
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : '导出图片失败，请重试。',
-      )
     } finally {
       setIsExportingImage(false)
     }
@@ -434,9 +555,7 @@ export default function Home() {
       anchor.click()
       URL.revokeObjectURL(downloadUrl)
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : '导出 PDF 失败，请重试。',
-      )
+      setErrorMessage(getErrorMessage(error, '导出 PDF 失败，请重试'))
     } finally {
       setIsExportingPdf(false)
     }

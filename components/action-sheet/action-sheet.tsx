@@ -11,13 +11,15 @@ export type ActionSheetAction = {
   onSelect?: () => void | Promise<void>
 }
 
+export type ActionSheetCloseReason = 'action' | 'cancel'
+
 type ActionSheetProps = {
   open: boolean
   title?: string
   description?: string
   actions: ActionSheetAction[]
   cancelText?: string
-  onClose: () => void
+  onClose: (reason: ActionSheetCloseReason) => void
 }
 
 const ACTION_SHEET_ANIMATION_MS = 220
@@ -51,7 +53,7 @@ export function ActionSheet({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose()
+        onClose('cancel')
       }
     }
 
@@ -82,7 +84,7 @@ export function ActionSheet({
           `visibility 0ms linear ${open ? '0ms' : `${ACTION_SHEET_ANIMATION_MS}ms`}`,
         ].join(', '),
       }}
-      onClick={onClose}
+      onClick={() => onClose('cancel')}
     >
       <div
         role="dialog"
@@ -159,7 +161,7 @@ export function ActionSheet({
                     return
                   }
 
-                  onClose()
+                  onClose('action')
                   await action.onSelect?.()
                 }}
                 style={{
@@ -204,7 +206,7 @@ export function ActionSheet({
 
         <button
           type="button"
-          onClick={onClose}
+          onClick={() => onClose('cancel')}
           style={{
             width: '100%',
             marginTop: 8,
