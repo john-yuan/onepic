@@ -37,8 +37,6 @@ type TouchGesture =
     }
   | null
 
-const MAX_SCALE = 4
-
 function clampOffset(scale: number, offsetX: number, offsetY: number) {
   const minOffset = 1 - scale
 
@@ -49,7 +47,7 @@ function clampOffset(scale: number, offsetX: number, offsetY: number) {
 }
 
 function clampValue(value: ImageEditorValue): ImageEditorValue {
-  const scale = Math.min(MAX_SCALE, Math.max(1, value.scale))
+  const scale = Math.max(1, value.scale)
   const offset = clampOffset(scale, value.offsetX, value.offsetY)
 
   return {
@@ -67,7 +65,7 @@ function zoomFromPoint(
   viewportWidth: number,
   viewportHeight: number,
 ): ImageEditorValue {
-  const safeNextScale = Math.min(MAX_SCALE, Math.max(1, nextScale))
+  const safeNextScale = Math.max(1, nextScale)
   const currentOffsetX = currentValue.offsetX * viewportWidth
   const currentOffsetY = currentValue.offsetY * viewportHeight
   const nextOffsetX =

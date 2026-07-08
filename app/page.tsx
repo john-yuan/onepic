@@ -132,11 +132,11 @@ function drawEditedImage(
   )
 }
 
-function buildMergedCanvas(drawPlans: DrawPlan[]) {
+function buildMergedCanvas(drawPlans: DrawPlan[], canvasWidth: number) {
   const totalHeight = drawPlans.reduce((sum, plan) => sum + plan.drawHeight, 0)
   const canvas = document.createElement('canvas')
 
-  canvas.width = drawPlans[0]?.drawWidth ?? 0
+  canvas.width = canvasWidth
   canvas.height = totalHeight
 
   const context = canvas.getContext('2d')
@@ -250,7 +250,10 @@ export default function Home() {
     setErrorMessage('')
 
     try {
-      const mergedCanvas = buildMergedCanvas(canvasData.drawPlans)
+      const mergedCanvas = buildMergedCanvas(
+        canvasData.drawPlans,
+        canvasData.summary.width,
+      )
       const blob = await new Promise<Blob | null>((resolve) => {
         if (format === 'png') {
           mergedCanvas.toBlob(resolve, 'image/png')
@@ -314,7 +317,10 @@ export default function Home() {
     setErrorMessage('')
 
     try {
-      const mergedCanvas = buildMergedCanvas(canvasData.drawPlans)
+      const mergedCanvas = buildMergedCanvas(
+        canvasData.drawPlans,
+        canvasData.summary.width,
+      )
       const exportWidth = Math.min(summary.width, PDF_MAX_IMAGE_WIDTH)
       const exportHeight = Math.round((summary.height * exportWidth) / summary.width)
       const exportCanvas = document.createElement('canvas')
@@ -723,17 +729,23 @@ export default function Home() {
               }}
             >
               {canvasData.drawPlans.map((plan) => (
-                <ImageEditor
+                <div
                   key={plan.image.id}
-                  src={plan.image.previewUrl}
-                  alt={plan.image.name}
-                  value={plan.image.editor}
-                  viewportWidth={plan.drawWidth}
-                  viewportHeight={plan.drawHeight}
-                  onChange={(editor) =>
-                    handleImageEditorChange(plan.image.id, editor)
-                  }
-                />
+                  style={{
+                    width: `${(plan.drawWidth / canvasData.summary.width) * 100}%`,
+                  }}
+                >
+                  <ImageEditor
+                    src={plan.image.previewUrl}
+                    alt={plan.image.name}
+                    value={plan.image.editor}
+                    viewportWidth={plan.drawWidth}
+                    viewportHeight={plan.drawHeight}
+                    onChange={(editor) =>
+                      handleImageEditorChange(plan.image.id, editor)
+                    }
+                  />
+                </div>
               ))}
             </div>
           ) : (
