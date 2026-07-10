@@ -297,6 +297,35 @@ function formatExportResolution(width: number, height: number) {
   return `${width} x ${height}`
 }
 
+function parseExportWidth(value: string) {
+  if (!value) {
+    return null
+  }
+
+  const width = Number.parseInt(value, 10)
+
+  if (!Number.isFinite(width) || width < 1) {
+    return null
+  }
+
+  return width
+}
+
+function getBoundedExportWidth(
+  requestedWidth: number | null,
+  maxWidth: number | null,
+) {
+  if (!maxWidth) {
+    return null
+  }
+
+  if (!requestedWidth) {
+    return maxWidth
+  }
+
+  return Math.min(requestedWidth, maxWidth)
+}
+
 const [A4_WIDTH] = PageSizes.A4
 const PDF_MAX_IMAGE_WIDTH = Math.round(A4_WIDTH * 3)
 
@@ -305,6 +334,7 @@ export default function Home() {
   const imagesRef = useRef<ImageItem[]>([])
   const { actionSheetNode, openActionSheet } = useActionSheet()
   const [images, setImages] = useState<ImageItem[]>([])
+  const [exportWidthInput, setExportWidthInput] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [isExportingImage, setIsExportingImage] = useState(false)
   const [isExportingPdf, setIsExportingPdf] = useState(false)
@@ -314,6 +344,14 @@ export default function Home() {
   const exportData = buildExportPlans(cropPlans)
   const summary = exportData?.summary ?? null
   const isExportBusy = isExportingImage || isExportingPdf
+  const customExportWidth = parseExportWidth(exportWidthInput)
+  const exportWidth = customExportWidth
+    ? getBoundedExportWidth(customExportWidth, summary?.width ?? null)
+    : summary?.width ?? null
+  const exportHeight =
+    summary && exportWidth
+      ? Math.max(1, Math.round((summary.height * exportWidth) / summary.width))
+      : null
 
   useEffect(() => {
     imagesRef.current = images
@@ -419,7 +457,7 @@ export default function Home() {
     setErrorMessage('')
 
     try {
-      let targetWidth = summary.width
+      let targetWidth = exportWidth ?? summary.width
 
       while (true) {
         const targetHeight = Math.max(
@@ -508,16 +546,27 @@ export default function Home() {
     setErrorMessage('')
 
     try {
-      const mergedCanvas = buildMergedCanvas(
-        exportData.exportPlans,
-        exportData.summary.width,
+      const targetWidth = customExportWidth
+        ? getBoundedExportWidth(
+            customExportWidth,
+            Math.min(summary.width, PDF_MAX_IMAGE_WIDTH),
+          )
+        : Math.min(summary.width, PDF_MAX_IMAGE_WIDTH)
+
+      if (!targetWidth) {
+        throw new Error('当前没有可用于 PDF 导出的宽度')
+      }
+
+      const mergedCanvas = buildImageExportCanvas(targetWidth)
+      const pdfExportWidth = targetWidth
+      const pdfExportHeight = Math.max(
+        1,
+        Math.round((summary.height * pdfExportWidth) / summary.width),
       )
-      const exportWidth = Math.min(summary.width, PDF_MAX_IMAGE_WIDTH)
-      const exportHeight = Math.round((summary.height * exportWidth) / summary.width)
       const exportCanvas = document.createElement('canvas')
 
-      exportCanvas.width = exportWidth
-      exportCanvas.height = exportHeight
+      exportCanvas.width = pdfExportWidth
+      exportCanvas.height = pdfExportHeight
 
       const exportContext = exportCanvas.getContext('2d')
 
@@ -527,14 +576,20 @@ export default function Home() {
 
       exportContext.imageSmoothingEnabled = true
       exportContext.imageSmoothingQuality = 'high'
-      exportContext.drawImage(mergedCanvas, 0, 0, exportWidth, exportHeight)
+      exportContext.drawImage(
+        mergedCanvas,
+        0,
+        0,
+        pdfExportWidth,
+        pdfExportHeight,
+      )
 
       const pdfDoc = await PDFDocument.create()
       const pdfImage =
         format === 'png'
           ? await pdfDoc.embedPng(exportCanvas.toDataURL('image/png'))
           : await pdfDoc.embedJpg(exportCanvas.toDataURL('image/jpeg', 1))
-      const pdfHeight = Math.round((summary.height * A4_WIDTH) / summary.width)
+      const pdfHeight = Math.round((pdfExportHeight * A4_WIDTH) / pdfExportWidth)
       const page = pdfDoc.addPage([A4_WIDTH, pdfHeight])
 
       page.drawImage(pdfImage, {
@@ -745,10 +800,51 @@ export default function Home() {
 
           {summary ? (
             <span style={{ color: '#4b5563', fontSize: 14 }}>
-              {summary.count} 张图片，导出尺寸 {summary.width} x {summary.height}
+              {summary.count} 张图片，导出尺寸 {exportWidth} x {exportHeight}
             </span>
           ) : null}
         </div>
+
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            minHeight: 40,
+            marginBottom: 16,
+            color: '#4b5563',
+            fontSize: 14,
+          }}
+        >
+          <span>最大输出宽度</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            step={1}
+            placeholder="自动"
+            value={exportWidthInput}
+            onChange={(event) => {
+              const nextValue = event.target.value
+
+              if (nextValue === '' || /^\d+$/.test(nextValue)) {
+                setExportWidthInput(nextValue)
+              }
+            }}
+            style={{
+              width: 96,
+              height: 40,
+              border: '1px solid #d1d5db',
+              borderRadius: 8,
+              padding: '0 12px',
+              boxSizing: 'border-box',
+              backgroundColor: '#ffffff',
+              color: '#111827',
+              fontSize: 14,
+            }}
+          />
+          <span>px</span>
+        </label>
 
         <input
           ref={inputRef}
